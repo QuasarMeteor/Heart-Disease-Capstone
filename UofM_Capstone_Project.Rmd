@@ -1,0 +1,562 @@
+---
+title: "Report Appendix" 
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ROCR)
+library(randomForest)
+library(MASS)
+library(e1071)
+```
+
+# Reading the file
+```{r}
+disease <- read.csv("/Users/Esteban/Downloads/heartdisease1.csv")
+attach(disease)
+```
+
+# Data Cleaning for Quantitative Variables (Mean)
+1, 4, 5, 8, 10, and 12 are numerical
+```{r}
+disease$age[is.na(disease$age)] <- mean(disease$age,na.rm=TRUE) # 1
+disease$trestbps[is.na(disease$trestbps)] <- mean(disease$trestbps,na.rm=TRUE) # 4
+disease$chol[is.na(disease$chol)] <- mean(disease$chol,na.rm=TRUE) # 5
+disease$thalach[is.na(disease$thalach)] <- mean(disease$thalach,na.rm=TRUE) # 8
+disease$oldpeak[is.na(disease$oldpeak)] <- mean(disease$oldpeak,na.rm=TRUE) # 10
+```
+
+# Data Cleaning for Qualitative (Remove Categorical and Binary)
+3, 7, 11, 12, 13 are categorical
+
+2, 6, and 9 are binary
+```{r}
+dim(na.omit(disease))
+disease <- na.omit(disease)
+```
+
+```{r}
+disease[,3] <- as.factor(disease[,3])
+disease[,7] <- as.factor(disease[,7])
+disease[,11] <- as.factor(disease[,11])
+disease[,12] <- as.factor(disease[,12])
+disease[,13] <- as.factor(disease[,13])
+disease[,2] <- as.factor(disease[,2])
+disease[,6] <- as.factor(disease[,6])
+disease[,9] <- as.factor(disease[,9])
+disease[,14] <- as.factor(disease[,14])
+```
+
+```{r}
+levels(disease[,3]) # 4 Levels (1-4)
+levels(disease[,7]) # 3 Levels (0-3)
+levels(disease[,11]) # 3 Levels (1-3)
+levels(disease[,12]) # 4 Levels (0-3)
+levels(disease[,13]) # 3 Levels (3, 6, 7)
+levels(disease[,2]) # 2 Levels 0 or 1
+levels(disease[,6]) # 2 Levels 0 or 1
+levels(disease[,9]) # 2 Levels 0 or 1
+```
+
+# Visual Exploration for Quantitative Variables
+```{r}
+par(mfrow = c(2,3))
+boxplot(age~heartdisease, data = disease, col = c("darkgreen", "darkred"), main = "Heart Disease by age")
+boxplot(trestbps~heartdisease, data = disease, col = c("darkgreen", "darkred"), main = "Hear Disease by trestbps") # Kinda different
+boxplot(chol~heartdisease, data = disease, col = c("darkgreen", "darkred"), main = "Heart Disease by chol") # Not very different
+boxplot(thalach~heartdisease, data = disease, col = c("darkgreen", "darkred"), main = "Heart Disease by thalach")
+boxplot(oldpeak~heartdisease, data = disease, col = c("darkgreen", "darkred"), main = "Heart Disease by oldpeak")
+```
+
+# Qualitative Visualization
+```{r}
+par(mfrow = c(2, 4))
+barplot(table(sex, heartdisease), legend.text = T, beside = T, main = "Heart Disease by sex", ylab = "Frequency", xlab = "Heart Disease") # Sex
+barplot(table(cp, heartdisease), legend.text = T, beside = T, main = "Heart Disease by cp", ylab = "Frequency", xlab = "Heart Disease") # cp
+barplot(table(fbs, heartdisease), legend.text = T, beside = T, main = "Heart Disease by fbs", ylab = "Frequency", xlab = "Heart Disease") #fbs (Not very different)
+barplot(table(restecg, heartdisease), legend.text = T, beside = T, main = "Heart Disease by restecg", ylab = "Frequency", xlab = "Heart Disease") # restecg (Kinda different)
+barplot(table(exang, heartdisease), legend.text = T, beside = T, main = "Heart Disease by exang", ylab = "Frequency", xlab = "Heart Disease") # exang
+barplot(table(slope, heartdisease), legend.text = T, beside = T, main = "Heart Disease by slope", ylab = "Frequency", xlab = "Heart Disease") # slope
+barplot(table(ca, heartdisease), legend.text = T, beside = T, main = "Heart Disease by ca", ylab = "Frequency", xlab = "Heart Disease") # ca
+barplot(table(thal, heartdisease), legend.text = T, beside = T, main = "Heart Disease by thal", ylab = "Frequency", xlab = "Heart Disease") # thal
+```
+
+# New data set (No trestbps, chol, and dbs)
+```{r}
+data <- disease[,-c(4, 5, 6)]
+```
+
+Now split the data into training and testing sets, using a 70-30 split. 
+```{r}
+set.seed(4052)
+test.ind <- sample(nrow(data), floor(nrow(data)*0.3))
+
+train <- data[-test.ind,]
+test <- data[test.ind,]
+```
+
+
+# Logistic Regression
+```{r}
+set.seed(1)
+log.model <- glm(heartdisease~., data = train, family = binomial)
+summary(log.model)
+```
+Thalach, ca, and thal are significant.
+
+```{r}
+MASS::stepAIC(log.model, direction = "backward")
+```
+AIC 93.51 (no age)
+```{r}
+# Final model
+log.model <- glm(heartdisease~. -age, data = train, family = binomial)
+```
+
+```{r}
+# Predicted probability of being in class
+log.pred <- predict(log.model, newdata = test, type = "response") 
+log.class <- as.numeric(log.pred > 0.5)
+# Confusion Matrix
+(mat <- xtabs(~log.class + test$heartdisease))
+
+# Error rate
+(mat[1,2] + mat[2,1])/sum(mat)
+```
+A error rate of about 0.1628
+
+## ROC curve and AUC 
+```{r}
+set.seed(1)
+log.pred <- predict(log.model, newdata = test)
+pred <- prediction(predictions = log.pred, labels = test$heartdisease)
+
+log.roc <- performance(pred, measure = "tpr", x.measure = "fpr")
+plot(log.roc, main = "Logistic ROC")
+log_perf2 <- performance(pred, measure = "auc")
+log_perf2@y.values[[1]]
+```
+The AUC is about 0.8596. 
+
+# Random Forest
+
+```{r}
+p <- ncol(train) - 1
+k <- 5
+ntree <- c(100, 200, 300, 400, 500, 600, 700, 800, 900, 1000)
+
+n <- 1:p 
+tuningpar <- expand.grid(n, ntree)
+cv.er.forest <- matrix(nrow = k, ncol = nrow(tuningpar))
+```
+
+
+## Cross Validation K-Fold Split
+```{r}
+set.seed(1)
+obs.per.fold <- ceiling(nrow(train)/k)
+shuffle.indices <- sample(nrow(train), nrow(train))
+folds <- vector("list", length = k)
+for (i in 1:k) {
+  if (i != k) { 
+    fold.indices <- (i - 1)*obs.per.fold + 1:obs.per.fold
+    folds[[i]] <- shuffle.indices[fold.indices]
+  } else {
+    fold.indices <- ((i - 1)*obs.per.fold + 1):nrow(train)
+    folds[[i]] <- shuffle.indices[fold.indices]
+  }
+}
+```
+
+
+## Testing for the two hyper parameters, ntrees && mtry.
+```{r}
+set.seed(1)
+for (i in 1:k) {
+  cv.training <- train[-folds[[i]],]
+  cv.validation <- train[folds[[i]],]
+    for (j in 1:nrow(tuningpar)) {
+      rf <- randomForest(x = cv.training[,-11], y = cv.training[,11], mtry = tuningpar[j,1],
+      ntree = tuningpar[j,2])
+      rfpred <- predict(rf, newdata = cv.validation[,-11])
+      cv.er.forest[i,j] <- mean(rfpred != cv.validation[,11])
+    }
+}
+meancv <- colMeans(cv.er.forest)
+optimal <- tuningpar[which(meancv == min(meancv)),]
+names(optimal) <- c("# of Parameters", "# of Trees")
+optimal
+```
+Found that 200 trees and 1 mtry parameters optimizes the randomforest model. 
+
+## Prediction based on the test case
+```{r}
+rand.forest <- randomForest(x = train[,-11], y = train[,11], mtry = 1, ntree = 200)
+
+#Predicted probability of being in class
+rand.pred <- predict(rand.forest, newdata = test[,-11], type = "prob")[,2]
+```
+
+## Importance
+```{r}
+varImpPlot(rand.forest, main = "Importance of Predictors")
+```
+
+
+## Random Forest Confusion Matrix
+```{r}
+rand.class <- predict(rand.forest, newdata = test[,-11], type = "response")
+(mat <- xtabs(~rand.class + test$heartdisease))
+(mat[1,2]+mat[2,1])/sum(mat) # Error rate
+```
+The test error rate is about 16.28%
+
+## ROC and AUC Curves
+```{r}
+set.seed(1)
+pred <- prediction(predictions = rand.pred, labels = test$heartdisease)
+
+rand.roc <- performance(pred, measure = "tpr", x.measure = "fpr")
+plot(rand.roc, main = "Random Forest ROC")
+log_perf2 <- performance(pred, measure = "auc")
+log_perf2@y.values[[1]]
+```
+The area under the curve is about 88.05%
+
+# Chosen Method) SVM
+
+```{r}
+set.seed(1)
+tune.out <- tune(svm, heartdisease~., data = train, kernel = "polynomial",ranges = list(cost = c(0.001, 0.01, 0.1, 1, 10, 100), degree = c(1,2,3,4)))
+summary(tune.out)
+best <- summary(tune.out)$best.model
+```
+
+```{r}
+svm.pred <- predict(best, newdata = test)
+(mat <- xtabs(~svm.pred + test$heartdisease))
+(mat[1,2] + mat[2,1])/sum(mat)
+```
+About 18.60%
+
+## ROC
+```{r}
+#Create the function
+rocplot<-function(predi,truth,...){
+predob<-prediction(predi,truth)
+perf<-performance(predob,"tpr","fpr")
+plot(perf,...)
+}
+```
+
+```{r}
+# Obtain the fitted values
+svm.fit <- svm(heartdisease~., data = train, kernel = "polynomial", degree = 2, cost = 10, decision.values=TRUE)
+fitted <- attributes(predict(svm.fit, newdata = test, decision.values=TRUE))$decision.values
+rocplot(-fitted, test$heartdisease, main = "Support Vector Machine (Poly) ROC")
+```
+
+
+## AUC
+```{r}
+svm.fit <- svm(heartdisease~., data = train, kernel = "polynomial", degree = 1, cost = 10, probability=TRUE)
+prob <- attributes(predict(svm.fit, newdata = test, probability =TRUE))$probabilities[,2]
+
+predictionsvm <- prediction(prob,test$heartdisease)
+svm_perf2 <- performance(predictionsvm, measure = "auc")
+svm_perf2@y.values[[1]]
+```
+about 88.82%
+
+
+# Imputation of Data
+```{r}
+disease <- read.csv("/Users/Esteban/Downloads/heartdisease1.csv")
+```
+
+Check the data
+```{r}
+str(disease)
+dim(na.omit(disease))
+```
+
+```{r}
+library(mi)
+```
+
+Create a missing data frame
+```{r}
+mdf <- missing_data.frame(disease, favor_ordered = FALSE, favor_positive = TRUE)
+show(mdf)
+```
+
+Change the transformations to the identity
+```{r}
+mdf <- change(mdf, y = c("age", "trestbps", "chol", "thalach", "oldpeak"), what = "transformation", to = rep("identity", 5))
+show(mdf)
+```
+Histogram
+
+```{r}
+hist(mdf)
+```
+
+Imputations
+```{r warning=FALSE}
+imputations <- mi(mdf, n.iter = 30, n.chains = 4, max.minutes = Inf, seed = NA,verbose = TRUE)
+show(imputations)
+```
+
+Check for constant mean (Looks good)
+```{r}
+mipply(imputations, mean, to.matrix = TRUE)
+```
+
+Check for a convergence diagnostic near 1. 
+```{r}
+Rhats(imputations)
+```
+Run 5 more iterations
+```{r warning=FALSE}
+imputations <- mi(imputations, n.iter = 5)
+```
+
+Visualize
+```{r}
+plot(imputations)
+```
+
+Complete the data
+```{r}
+Data <- complete(imputations, m = 1)
+str(Data)
+dim(na.omit(Data))
+```
+
+## Re-Downloading Dataset
+```{r}
+Data <- read.csv("/Users/Esteban/Desktop/Data.csv")
+```
+
+```{r}
+Data[,2] <- as.factor(Data[,2])
+Data[,3] <- as.factor(Data[,3])
+Data[,6] <- as.factor(Data[,6])
+Data[,7] <- as.factor(Data[,7])
+Data[,9] <- as.factor(Data[,9])
+Data[,11] <- as.factor(Data[,11])
+Data[,12] <- as.factor(Data[,12])
+Data[,13] <- as.factor(Data[,13])
+Data[,14] <- as.factor(Data[,14])
+```
+
+
+# Visualization of necessary parameters
+```{r}
+par(mfrow = c(2,3))
+boxplot(age~heartdisease, data = Data, col = c("darkgreen", "darkred"), main = "Heart Disease by age")
+boxplot(trestbps~heartdisease, data = Data, col = c("darkgreen", "darkred"), main = "Heart Disease by trestbps") # Kinda different, not really
+boxplot(chol~heartdisease, data = Data, col = c("darkgreen", "darkred"), main = "Heart Disease by chol") # Not very different
+boxplot(thalach~heartdisease, data = Data, col = c("darkgreen", "darkred"), main = "Heart Disease by thalach")
+boxplot(oldpeak~heartdisease, data = Data, col = c("darkgreen", "darkred"), main = "Heart Disease by oldpeak")
+```
+
+```{r}
+par(mfrow = c(2, 4))
+barplot(table(Data$sex, Data$heartdisease), legend.text = T, beside = T, main = "Heart Disease by sex", ylab = "Frequency", xlab = "Heart Disease") # Sex
+barplot(table(Data$cp, Data$heartdisease), legend.text = T, beside = T, main = "Heart Disease by cp", ylab = "Frequency", xlab = "Heart Disease") # cp
+barplot(table(Data$fbs, Data$heartdisease), legend.text = T, beside = T, main = "Heart Disease by fbs", ylab = "Frequency", xlab = "Heart Disease") #fbs (Not very different)
+barplot(table(Data$restecg, Data$heartdisease), legend.text = T, beside = T, main = "Heart Disease by restecg", ylab = "Frequency", xlab = "Heart Disease") # restecg (Kinda different)
+barplot(table(Data$exang, Data$heartdisease), legend.text = T, beside = T, main = "Heart Disease by exang", ylab = "Frequency", xlab = "Heart Disease") # exang
+barplot(table(Data$slope, Data$heartdisease), legend.text = T, beside = T, main = "Heart Disease by slope", ylab = "Frequency", xlab = "Heart Disease") # slope
+barplot(table(Data$ca, Data$heartdisease), legend.text = T, beside = T, main = "Heart Disease by ca", ylab = "Frequency", xlab = "Heart Disease") # ca
+barplot(table(Data$thal, Data$heartdisease), legend.text = T, beside = T, main = "Heart Disease by thal", ylab = "Frequency", xlab = "Heart Disease") # thal
+```
+
+## Delete the unecessary varibles and split the data into test and train sets
+```{r}
+newdata <- Data[,-c(4, 5, 6, 15:22)]
+anyNA(newdata)
+```
+
+```{r}
+set.seed(4052)
+test.ind <- sample(nrow(newdata), floor(nrow(newdata)*0.3))
+
+train <- newdata[-test.ind,]
+test <- newdata[test.ind,]
+```
+
+
+## Logistic Regression
+
+```{r}
+set.seed(1)
+log.model <- glm(heartdisease~., data = train, family = binomial)
+```
+
+```{r}
+MASS::stepAIC(log.model, direction = "backward")
+```
+The final model does not have age, exang, or slope.
+```{r}
+#Final model
+log.model <- glm(heartdisease~.-age -exang -slope, data = train, family = binomial)
+```
+
+
+```{r}
+# Predicted probability of being in class
+log.pred <- predict(log.model, newdata = test, type = "response") 
+log.class <- as.numeric(log.pred > 0.5)
+# Confusion Matrix
+(mat <- xtabs(~log.class + test$heartdisease))
+
+# Error rate
+(mat[1,2] + mat[2,1])/sum(mat)
+```
+About 17.78%
+
+```{r}
+set.seed(1)
+log.pred <- predict(log.model, newdata = test)
+pred <- prediction(predictions = log.pred, labels = test$heartdisease)
+
+log.roc <- performance(pred, measure = "tpr", x.measure = "fpr")
+plot(log.roc, main = "(Iterative Regression) Logistic ROC")
+
+log_perf2 <- performance(pred, measure = "auc")
+log_perf2@y.values[[1]]
+```
+About 88.73%
+
+## Random Forest
+```{r}
+p <- ncol(train) - 1
+k <- 5
+ntree <- c(100, 200, 300, 400, 500, 600, 700, 800, 900, 1000)
+
+n <- 1:p 
+tuningpar <- expand.grid(n, ntree)
+cv.er.forest <- matrix(nrow = k, ncol = nrow(tuningpar))
+```
+
+
+## Cross Validation K-Fold Split
+```{r}
+set.seed(1)
+obs.per.fold <- ceiling(nrow(train)/k)
+shuffle.indices <- sample(nrow(train), nrow(train))
+folds <- vector("list", length = k)
+for (i in 1:k) {
+  if (i != k) { 
+    fold.indices <- (i - 1)*obs.per.fold + 1:obs.per.fold
+    folds[[i]] <- shuffle.indices[fold.indices]
+  } else {
+    fold.indices <- ((i - 1)*obs.per.fold + 1):nrow(train)
+    folds[[i]] <- shuffle.indices[fold.indices]
+  }
+}
+```
+
+
+## Testing for the two hyper parameters, ntrees && mtry.
+```{r warning=FALSE}
+set.seed(1)
+for (i in 1:k) {
+  cv.training <- train[-folds[[i]],]
+  cv.validation <- train[folds[[i]],]
+    for (j in 1:nrow(tuningpar)) {
+      rf <- randomForest(x = cv.training[,-11], y = cv.training[,11], mtry = tuningpar[j,1],
+      ntree = tuningpar[j,2])
+      rfpred <- predict(rf, newdata = cv.validation[,-11])
+      cv.er.forest[i,j] <- mean(rfpred != cv.validation[,11])
+    }
+}
+meancv <- colMeans(cv.er.forest)
+optimal <- tuningpar[which(meancv == min(meancv)),]
+names(optimal) <- c("# of var sampled", "# of Trees")
+optimal
+```
+We found that the optimal number for mtry is 4 and the number of trees is 300, or 6 and 600
+
+## Prediction based on the test case
+```{r}
+set.seed(1)
+rand.forest <- randomForest(x = train[,-11], y = train[,11], mtry = 4, ntree = 300)
+
+#Predicted probability of being in class
+rand.pred <- predict(rand.forest, newdata = test[,-11], type = "prob")[,2]
+```
+
+## Random Forest Confusion Matrix
+```{r}
+rand.class <- predict(rand.forest, newdata = test[,-11], type = "response")
+(mat <- xtabs(~rand.class + test$heartdisease))
+(mat[1,2]+mat[2,1])/sum(mat) # Error rate
+```
+About 20%
+
+```{r}
+importance(rand.forest)
+varImpPlot(rand.forest, main = "Importance of Predictors")
+```
+
+
+## ROC and AUC Curves for random forest
+```{r}
+pred <- prediction(predictions = rand.pred, labels = test$heartdisease)
+
+rand.roc <- performance(pred, measure = "tpr", x.measure = "fpr")
+plot(rand.roc, main = "Random Forest ROC")
+log_perf2 <- performance(pred, measure = "auc")
+log_perf2@y.values[[1]]
+```
+About 88.54%
+
+# Chosen Method: SVM with polynomial kernel
+
+```{r}
+set.seed(1)
+tune.out <- tune(svm, heartdisease~., data = train, kernel = "polynomial",ranges = list(cost = c(0.001, 0.01, 0.1, 1, 10, 100), degree = c(1,2,3,4)))
+summary(tune.out)
+best <- summary(tune.out)$best.model
+```
+
+
+```{r}
+svm.pred <- predict(best, newdata = test)
+(mat <- xtabs(~svm.pred + test$heartdisease))
+(mat[1,2] + mat[2,1])/sum(mat)
+```
+About 18.89%
+
+## ROC
+```{r}
+#Create the function
+rocplot<-function(predi,truth,...){
+predob<-prediction(predi,truth)
+perf<-performance(predob,"tpr","fpr")
+plot(perf,...)
+}
+```
+
+```{r}
+# Obtain the fitted values
+svm.fit <- svm(heartdisease~., data = train, kernel = "polynomial", degree = 1, cost = 100, decision.values=TRUE)
+fitted <- attributes(predict(svm.fit, newdata = test, decision.values=TRUE))$decision.values
+rocplot(-fitted, test$heartdisease, main = "Support Vector Machine ROC")
+```
+
+
+## AUC
+```{r}
+svm.fit <- svm(heartdisease~., data = train, kernel = "polynomial", degree = 1, cost = 100, probability=TRUE)
+prob <- attributes(predict(svm.fit, newdata = test, probability =TRUE))$probabilities[,2]
+
+predictionsvm <- prediction(prob,test$heartdisease)
+svm_perf2 <- performance(predictionsvm, measure = "auc")
+svm_perf2@y.values[[1]]
+```
+About 88.64%
